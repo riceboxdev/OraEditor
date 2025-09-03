@@ -121,7 +121,7 @@ public struct CropView: View {
                             } else {
                                 onCrop(nil,false)
                             }
-                            dismiss()
+                     
                         } label: {
                             Image(systemName: "checkmark")
                                 .font(.callout)
