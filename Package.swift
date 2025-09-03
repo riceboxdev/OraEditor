@@ -15,12 +15,15 @@ let package = Package(
             targets: ["OraEditor"]
         ),
     ],
-  
+    dependencies: [
+        .package(url: "https://github.com/riceboxdev/ColorKit.git", branch: "master"),
+    ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
             name: "OraEditor",
+            dependencies: ["ColorKit"],
             resources: [
                 .process("Resources")
             ]

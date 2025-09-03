@@ -1,0 +1,15 @@
+{
+  "originHash" : "5810739139dc68f540c8b698583af05d1230d017f4aa92b19b8a1b847aefec76",
+  "pins" : [
+    {
+      "identity" : "colorkit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/riceboxdev/ColorKit.git",
+      "state" : {
+        "branch" : "master",
+        "revision" : "6e4375a6126eac0a29893c607ae318bdbe33310c"
+      }
+    }
+  ],
+  "version" : 3
+}

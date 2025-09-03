@@ -49,6 +49,8 @@ fileprivate struct CustomImagePicker<Content: View>: View {
     @State private var selectedCropType: Crop = .rectangle
     @State private var showCropView = false
     
+    @Namespace private var animation
+    
     var body: some View {
         content
             .photosPicker(isPresented: $show, selection: $photosItem)
@@ -75,7 +77,7 @@ fileprivate struct CustomImagePicker<Content: View>: View {
             .fullScreenCover(isPresented: $showCropView) {
                 selectedImage = nil
             } content: {
-                CropView(crop: selectedCropType, image: selectedImage) { croppedImage, status in
+                CropView(crop: selectedCropType, image: selectedImage, namespace: animation, matchedId: "image") { croppedImage, status in
                     if let croppedImage {
                         self.croppedImage = croppedImage
                     }
@@ -88,6 +90,8 @@ fileprivate struct CustomImagePicker<Content: View>: View {
 public struct CropView: View {
     public var crop: Crop
     public var image: UIImage?
+    public var namespace: Namespace.ID
+    public var matchedId: String
     public var onCrop: (UIImage?, Bool) -> ()
     
     
@@ -99,12 +103,14 @@ public struct CropView: View {
     @State private var lastStoredOffset: CGSize = .zero
     @GestureState private var isInteracting: Bool = false
     
+    let screenSize = UIScreen.main.bounds
+    
     public var body: some View {
         NavigationStack {
             ImageView()
                 .navigationTitle("Crop")
                 .navigationBarTitleDisplayMode(.inline)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: screenSize.width, maxHeight: screenSize.height)
               .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
@@ -124,7 +130,7 @@ public struct CropView: View {
                     }
                     ToolbarItem(placement: .topBarLeading) {
                         Button {
-                            dismiss()
+                            onCrop(nil,false)
                         } label: {
                             Image(systemName: "xmark")
                                 .font(.callout)
@@ -145,6 +151,7 @@ public struct CropView: View {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
+                    .matchedGeometryEffect(id: "editorImage", in: namespace)
                     .overlay {
                         GeometryReader { proxy in
                             let rect = proxy.frame(in: .named("CROPVIEW"))

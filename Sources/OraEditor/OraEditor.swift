@@ -4,26 +4,21 @@ import SwiftUI
 import PhotosUI
 import AVKit
 import Combine
+import ColorKit
 
 
 class OraManager: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var step: OraEditorSteps = .editPhoto
-    @Published var sheetState: EditorSheetState = .collapsed
+    @Published var selectedTool: EditorSheetTools?
     @Published var isCropping: Bool = false
-    @Published var getColor: Bool = false
     @Published var showToolSheet: Bool = false
-    @Published var selectedImage: UIImage? = UIImage(named: "sample")
+    @Published var selectedImage: UIImage?
     @Published var croppedImage: UIImage?
-    @Published var selectedDetent: PresentationDetent = .height(EditorSheetState.toolMode.rawValue)
+    @Published var selectedDetent: PresentationDetent = .height(EditorSheetState.collapsed.rawValue)
     
-    // Crop-related properties
-    @Published var imageScale: CGFloat = 1.0
-    @Published var imageOffset: CGSize = .zero
-    @Published var cropRect: CGRect = .zero
-    @Published var lastImageScale: CGFloat = 1.0
-    @Published var lastImageOffset: CGSize = .zero
-    @Published var lastCropRect: CGRect = .zero
+    @Published var backgroundColor: UIColor = .blue
+    @Published var extractedColors: [UIColor] = []
     
     let targetAspectRatio: CGFloat = 0.46
     
@@ -35,6 +30,13 @@ class OraManager: ObservableObject {
     
   
   
+    func getColors(from image: UIImage) {
+        do {
+            self.extractedColors = try image.dominantColors()
+        } catch {
+            print("Failed To get dominant colors!")
+        }
+    }
     
     // MARK: - Image Downloading
     
@@ -108,15 +110,27 @@ public struct OraEditor: View {
                 .animation(.smooth(duration: 1), value: manager.step)
             }
         }
+        .background {
+            LinearGradient(
+                colors: [
+                    .clear,
+                    Color(manager.backgroundColor)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+                .ignoresSafeArea()
+                .opacity(0.3)
+        }
         .transition(.opacity)
         .animation(.smooth(duration: 0.1), value: manager.isLoading)
-        .onAppear() {
-            Task {
-                if let url = URL(string: "https://picsum.photos/500/1100") {
-                    await manager.downloadAndSetImage(from: url)
-                }
-            }
-        }
+//        .onAppear() {
+//            Task {
+//                if let url = URL(string: "https://picsum.photos/500/1100") {
+//                    await manager.downloadAndSetImage(from: url)
+//                }
+//            }
+//        }
     }
 }
 
@@ -228,14 +242,13 @@ enum EditorSheetState: CGFloat {
 
 struct ImageEditorView: View {
     @EnvironmentObject var manager: OraManager
-    @State private var showControls = true
+    @State private var showControls = false
     @State private var imagePreviewHeight: CGFloat = 400
     @State private var spacerHeight: CGFloat = EditorSheetState.collapsed.rawValue
     @State private var imageSize = CGSize.zero
     @State private var imageOffset = CGPoint.zero
     
     @State private var photosItem: PhotosPickerItem?
-    @State private var selectedImage: UIImage?
     @State private var showDialog = false
     @State private var selectedCropType: Crop = .rectangle
     @State private var showCropView = false
@@ -251,28 +264,14 @@ struct ImageEditorView: View {
     var body: some View {
         VStack {
             ZStack {
-                GeometryReader { geo in
-                    let imageHeight = geo.size.height - 100
-                    VStack {
-                        if let image = manager.selectedImage {
-                           Image(uiImage: image)
-                                .resizable()
-                                .aspectRatio(manager.targetAspectRatio, contentMode: .fit)
-                                .frame(height: imageHeight)
-                                .clipped()
-                                // Matched geometry source
-                                .matchedGeometryEffect(id: "editorImage", in: cropNamespace)
-                        }
-                    }
-                    .containerRelativeFrame(.horizontal)
-                }
-                .border(showBounds ? .green : .clear)
+                
+                rearImagePreview()
                 
                 if manager.isCropping {
                     CropView(
                         crop: .rectangle,
                         image: manager.selectedImage,
-                        // Matched geometry destination
+                        // Matched geometry destination for smooth transition from preview image
                         namespace: cropNamespace,
                         matchedId: "editorImage"
                     ) { croppedImage, status in
@@ -280,15 +279,30 @@ struct ImageEditorView: View {
                             manager.croppedImage = croppedImage
                         }
                         if status {
-                            manager.isCropping = false
+                            withAnimation(.smooth) {
+                                manager.isCropping = false
+                            }
+                        } else {
+                            withAnimation(.smooth) {
+                                manager.isCropping = false
+                            }
                         }
                     }
                     .onAppear() {
-                        showControls = false
+                        withAnimation(.smooth) {
+                            showControls = false
+                        }
                     }
                     .onDisappear() {
-                        showControls = true
+                        withAnimation(.smooth) {
+                            showControls = true
+                        }
                     }
+                }
+                
+                if manager.selectedImage == nil {
+                    DefaultEditorView()
+                        .environmentObject(manager)
                 }
             }
             
@@ -300,6 +314,7 @@ struct ImageEditorView: View {
                     .border(showBounds ? .blue : .clear)
             }
         }
+        
 //        .background(Color(UIColor.secondarySystemBackground))
         .onChange(of: manager.selectedDetent) { newValue in
             if newValue == .height(compactSize) {
@@ -331,6 +346,30 @@ struct ImageEditorView: View {
         }
     }
     
+    @ViewBuilder
+    func rearImagePreview() -> some View {
+        GeometryReader { geo in
+            let imageHeight = geo.size.height - 100
+            VStack {
+                if let image = manager.selectedImage {
+                    // Matched geometry source for smooth transition to crop view
+                   Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(manager.targetAspectRatio, contentMode: .fit)
+                        .frame(height: imageHeight)
+                        .clipped()
+                        .matchedGeometryEffect(id: "editorImage", in: cropNamespace)
+                        .onAppear() {
+                            manager.getColors(from: image)
+                            showControls = true
+                        }
+                }
+            }
+            .containerRelativeFrame(.horizontal)
+        }
+        .border(showBounds ? .green : .clear)
+    }
+    
     private func calculateImageSize(in containerSize: CGSize, for image: UIImage) {
         let imageAspectRatio = image.size.width / image.size.height
         let containerAspectRatio = containerSize.width / containerSize.height
@@ -345,49 +384,6 @@ struct ImageEditorView: View {
         
         imageOffset.x = (containerSize.width - imageSize.width) / 2
         imageOffset.y = (containerSize.height - imageSize.height) / 2
-    }
-    
-    private func calculateCropRect(in containerSize: CGSize, imageHeight: CGFloat) {
-        let cropWidth = imageHeight * manager.targetAspectRatio
-        let cropHeight = imageHeight - 40 // Some padding
-        
-        manager.cropRect = CGRect(
-            x: (containerSize.width - cropWidth) / 2,
-            y: 20,
-            width: cropWidth,
-            height: cropHeight
-        )
-    }
-}
-
-// New Interactive Crop Overlay
-struct InteractiveCropOverlay: View {
-    @ObservedObject var manager: OraManager
-    let containerSize: CGSize
-    
-    var body: some View {
-        ZStack {
-            // Non-interactive dimming overlay
-            DimmingOverlay(cropRect: manager.cropRect)
-                .allowsHitTesting(false) // Key: doesn't block image gestures
-            
-            // Interactive crop border
-            InteractiveCropBorder(
-                cropRect: $manager.cropRect,
-                lastCropRect: $manager.lastCropRect,
-                containerSize: containerSize
-            )
-            
-            // Interactive corner handles
-            ForEach(0..<4, id: \.self) { index in
-                CropHandle(
-                    index: index,
-                    cropRect: $manager.cropRect,
-                    lastCropRect: $manager.lastCropRect,
-                    containerSize: containerSize
-                )
-            }
-        }
     }
 }
 
@@ -411,144 +407,48 @@ struct DimmingOverlay: View {
     }
 }
 
-struct InteractiveCropBorder: View {
-    @Binding var cropRect: CGRect
-    @Binding var lastCropRect: CGRect
-    let containerSize: CGSize
+enum EditorSheetTools: CaseIterable {
+    case crop
+    case colorExtract
     
-    var body: some View {
-        Rectangle()
-            .stroke(Color.white, lineWidth: 2)
-            .frame(width: cropRect.width, height: cropRect.height)
-            .position(x: cropRect.midX, y: cropRect.midY)
-            // Make only the border interactive with a wider hit area
-            .contentShape(
-                Rectangle()
-                    .stroke(lineWidth: 20) // Wider invisible hit area
-            )
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        let newX = lastCropRect.origin.x + value.translation.width
-                        let newY = lastCropRect.origin.y + value.translation.height
-                        
-                        cropRect = CGRect(
-                            x: max(0, min(newX, containerSize.width - cropRect.width)),
-                            y: max(0, min(newY, containerSize.height - cropRect.height)),
-                            width: cropRect.width,
-                            height: cropRect.height
-                        )
-                    }
-                    .onEnded { _ in
-                        lastCropRect = cropRect
-                    }
-            )
+    var icon: String {
+        switch self {
+        case .crop: return "crop"
+        case .colorExtract: return "drop"
+        }
     }
 }
 
-struct CropHandle: View {
-    let index: Int
-    @Binding var cropRect: CGRect
-    @Binding var lastCropRect: CGRect
-    let containerSize: CGSize
-    
-    private var handlePosition: CGPoint {
-        switch index {
-        case 0: return CGPoint(x: cropRect.minX, y: cropRect.minY) // Top-left
-        case 1: return CGPoint(x: cropRect.maxX, y: cropRect.minY) // Top-right
-        case 2: return CGPoint(x: cropRect.maxX, y: cropRect.maxY) // Bottom-right
-        case 3: return CGPoint(x: cropRect.minX, y: cropRect.maxY) // Bottom-left
-        default: return CGPoint.zero
-        }
-    }
-    
-    var body: some View {
-        // Using corner indicators similar to your original design
-        ZStack {
-            // Horizontal line
-            Rectangle()
-                .fill(Color.white)
-                .frame(width: 20, height: 3)
-            
-            // Vertical line
-            Rectangle()
-                .fill(Color.white)
-                .frame(width: 3, height: 20)
-        }
-        .position(handlePosition)
-        .contentShape(Rectangle()) // Larger touch area
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    resizeCropRect(with: value.translation)
+extension EditorSheetTools {
+    func action(manager: OraManager) -> () -> Void {
+        switch self {
+        case .crop:
+            return { manager.isCropping.toggle() }
+        case .colorExtract:
+            return {
+                if manager.selectedTool == .colorExtract {
+                    withAnimation(.smooth) {
+                        manager.selectedTool = .none
+                        manager.selectedDetent = .height(EditorSheetState.collapsed.rawValue)
+                    }
+                } else {
+                    withAnimation(.smooth) {
+                        manager.selectedDetent = .height(EditorSheetState.toolMode.rawValue)
+                        manager.selectedTool = .colorExtract
+                    }
                 }
-                .onEnded { _ in
-                    lastCropRect = cropRect
-                }
-        )
-    }
-    
-    private func resizeCropRect(with translation: CGSize) {
-        let minSize: CGFloat = 50 // Minimum crop size
-        var newRect = lastCropRect
-        
-        switch index {
-        case 0: // Top-left
-            let newWidth = max(minSize, lastCropRect.width - translation.width)
-            let newHeight = max(minSize, lastCropRect.height - translation.height)
-            let deltaWidth = lastCropRect.width - newWidth
-            let deltaHeight = lastCropRect.height - newHeight
-            
-            newRect = CGRect(
-                x: lastCropRect.origin.x + deltaWidth,
-                y: lastCropRect.origin.y + deltaHeight,
-                width: newWidth,
-                height: newHeight
-            )
-            
-        case 1: // Top-right
-            let newWidth = max(minSize, lastCropRect.width + translation.width)
-            let newHeight = max(minSize, lastCropRect.height - translation.height)
-            let deltaHeight = lastCropRect.height - newHeight
-            
-            newRect = CGRect(
-                x: lastCropRect.origin.x,
-                y: lastCropRect.origin.y + deltaHeight,
-                width: newWidth,
-                height: newHeight
-            )
-            
-        case 2: // Bottom-right
-            newRect = CGRect(
-                x: lastCropRect.origin.x,
-                y: lastCropRect.origin.y,
-                width: max(minSize, lastCropRect.width + translation.width),
-                height: max(minSize, lastCropRect.height + translation.height)
-            )
-            
-        case 3: // Bottom-left
-            let newWidth = max(minSize, lastCropRect.width - translation.width)
-            let deltaWidth = lastCropRect.width - newWidth
-            
-            newRect = CGRect(
-                x: lastCropRect.origin.x + deltaWidth,
-                y: lastCropRect.origin.y,
-                width: newWidth,
-                height: max(minSize, lastCropRect.height + translation.height)
-            )
-            
-        default:
-            break
+            }
         }
-        
-        // Ensure the crop rect stays within bounds
-        newRect.origin.x = max(0, newRect.origin.x)
-        newRect.origin.y = max(0, newRect.origin.y)
-        newRect.size.width = min(newRect.width, containerSize.width - newRect.origin.x)
-        newRect.size.height = min(newRect.height, containerSize.height - newRect.origin.y)
-        
-        cropRect = newRect
     }
+
+//    func isActive(manager: OraManager) -> Bool {
+//        switch self {
+//        case .crop:
+//            return manager.isCropping
+//        case .colorExtract:
+//            return manager.getColor
+//        }
+//    }
 }
 
 struct EditorSheetView: View {
@@ -557,85 +457,63 @@ struct EditorSheetView: View {
     let toolSize = EditorSheetState.toolMode.rawValue
     let expandedSize = EditorSheetState.expanded.rawValue
     
+    
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                CircleButton(icon: "crop", isActive: $manager.isCropping) {
-                    manager.isCropping.toggle()
+                ForEach(EditorSheetTools.allCases, id: \.self) { tool in
+                    CircleButton(icon: tool.icon, isActive: manager.selectedTool == tool) {
+                        tool.action(manager: manager)()
+                    }
                 }
-                CircleButton(icon: "drop", isActive: $manager.getColor) {
-                    manager.getColor.toggle()
-                    manager.selectedDetent = .height(toolSize)
-                }
+               
+                
                 Spacer()
                 
                 if manager.isCropping {
                     // Crop action button
-                    CircleButton(icon: "checkmark", prominent: true, isActive: .constant(false)) {
+                    CircleButton(icon: "checkmark", prominent: true, isActive: false) {
 //                        manager.cropImage()
                     }
                 } else {
-                    CircleButton(icon: "arrow.up", prominent: true, isActive: .constant(false)) {
+                    CircleButton(icon: "arrow.right", prominent: true, isActive: false) {
                         // Export or other action
                     }
                 }
             }
             .padding(.horizontal, 10)
-            .onChange(of: manager.selectedDetent) { oldValue, newValue in
-                if newValue == .height(compactSize) {
-                    withAnimation(.smooth) {
-                        manager.sheetState = .collapsed
-                    }
-                } else if newValue == .height(toolSize) {
-                    withAnimation(.smooth) {
-                        manager.sheetState = .toolMode
-                    }
-                }
-                else if newValue == .height(expandedSize) {
-                    withAnimation(.smooth) {
-                        manager.sheetState = .expanded
-                    }
-                }
-            }
             .frame(height: compactSize)
             .ignoresSafeArea()
+//            .border(.red)
             
             if manager.selectedDetent == .height(toolSize) && !manager.isCropping {
-                ScrollView(.horizontal, showsIndicators: false) {
+                switch manager.selectedTool {
+                case .crop:
                     HStack {
-                        Circle()
-                            .fill(.clear)
-                            .frame(width: 60, height: 60)
-                            .overlay {
-                                Circle()
-                                    .fill(.red)
-                                    .frame(width: 45, height: 45)
-                            }
                         
-                        Circle()
-                            .fill(.clear)
-                            .frame(width: 60, height: 60)
-                            .overlay {
-                                Circle()
-                                    .fill(.pink)
-                                    .frame(width: 45, height: 45)
+                    }
+                case .colorExtract:
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack {
+                            ForEach(manager.extractedColors, id: \.self) { color in
+                                ColorPickerButton(color: color, isSelected: manager.backgroundColor == color) {
+                                    manager.backgroundColor = color
+                                }
                             }
+                           
+                            
+                            Spacer()
+                        }
+                        .padding(10)
+                    }
+                    .background(.quinary.opacity(0.25), in: .capsule)
+                    .padding(10)
+                    .frame(height: 60)
+                case .none:
+                    HStack {
                         
-                        Circle()
-                            .fill(.clear)
-                            .frame(width: 60, height: 60)
-                            .overlay {
-                                Circle()
-                                    .fill(.indigo)
-                                    .frame(width: 45, height: 45)
-                            }
-                        
-                        Spacer()
                     }
                 }
-                .background(.quinary.opacity(0.25), in: .capsule)
-                .padding(10)
-                .frame(height: 60)
             } else if manager.isCropping {
                 // Crop mode instructions
 //                VStack {
@@ -658,10 +536,40 @@ struct EditorSheetView: View {
     }
 }
 
+struct ColorPickerButton: View {
+    var color: UIColor
+    var size: CGFloat = 50
+    var isSelected: Bool = false
+    var onTap: () -> Void
+    var body: some View {
+        Button {
+          onTap()
+        } label: {
+            Circle()
+                .fill(Color(color))
+              
+                .overlay {
+                    if isSelected {
+                        ZStack {
+                            Circle()
+                                .fill(.clear)
+                                .stroke(Color.white, lineWidth: 2)
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .frame(width: size, height: size)
+        .scaleEffect(isSelected ? 0.8 : 1)
+        .animation(.smooth(duration: 0.4), value: isSelected)
+    }
+}
+
 struct CircleButton: View {
     var icon: String = ""
     var prominent: Bool = false
-    @Binding var isActive: Bool
+    var isActive: Bool
     var action: () -> Void = { print("Tapped") }
     var body: some View {
         if #available(iOS 17.0, *) {
@@ -713,14 +621,42 @@ struct CircleButton: View {
     }
 }
 
+// --- CropView definition (must accept namespace and matchedId) ---
+//struct CropView: View {
+//    let crop: Crop
+//    let image: UIImage?
+//    let namespace: Namespace.ID
+//    let matchedId: String
+//    let completion: (UIImage?, Bool) -> Void
+//    
+//    @State private var localImage: UIImage? = nil
+//    
+//    var body: some View {
+//        if let image = image {
+//            // Matched geometry destination image
+//            Image(uiImage: image)
+//                .resizable()
+//                .aspectRatio(contentMode: .fit)
+//                .matchedGeometryEffect(id: matchedId, in: namespace)
+//                // Additional crop UI and gestures here, omitted for brevity
+//                .overlay(
+//                    Text("Crop View")
+//                        .foregroundColor(.white)
+//                        .padding()
+//                        .background(Color.black.opacity(0.5))
+//                        .cornerRadius(8)
+//                        .padding()
+//                )
+//        } else {
+//            Text("No Image to Crop")
+//        }
+//    }
+//}
+
 #Preview {
     ZStack {
-        if let image = UIImage(named: "sample") {
-            Image(uiImage: image)
-        }
-        LinearGradient(colors: [.red.opacity(0.2), .blue], startPoint: .top, endPoint: .bottom)
-            .ignoresSafeArea()
-            .opacity(0.3)
+    
+   
         OraEditor()
     }
 }
