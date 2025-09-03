@@ -218,7 +218,7 @@ enum EditorSheetState: CGFloat {
 
 struct ImageEditorView: View {
     @EnvironmentObject var manager: OraManager
-    @State private var showControls = false
+    @State private var showControls = true
     @State private var imagePreviewHeight: CGFloat = 400
     @State private var spacerHeight: CGFloat = EditorSheetState.collapsed.rawValue
     @State private var imageSize = CGSize.zero
