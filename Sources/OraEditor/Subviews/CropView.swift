@@ -1,106 +1,74 @@
 //
-//  CropView.swift
-//  OraEditor
+//  SwiftUIView.swift
+//  Sushi
 //
-//  Created by Nick Rogers on 8/22/25.
+//  Created by Nick Rogers on 9/2/25.
 //
-
 
 import SwiftUI
 
-public struct OraCropView: View {
-    public let image: UIImage
-    public let aspectRatio: CGFloat? // pass `nil` for freeform crop, or something like 1.0, 16/9, etc.
-    
-    @State private var scale: CGFloat = 1.0
-    @State private var offset: CGSize = .zero
-    @State private var lastScale: CGFloat = 1.0
-    @State private var lastOffset: CGSize = .zero
-    
-    public var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                // Image with drag + zoom
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .scaleEffect(scale)
-                    .offset(offset)
-                    .gesture(
-                        SimultaneousGesture(
-                            DragGesture()
-                                .onChanged { value in
-                                    offset = CGSize(
-                                        width: lastOffset.width + value.translation.width,
-                                        height: lastOffset.height + value.translation.height
-                                    )
-                                }
-                                .onEnded { _ in
-                                    lastOffset = offset
-                                },
-                            MagnificationGesture()
-                                .onChanged { value in
-                                    scale = lastScale * value
-                                }
-                                .onEnded { value in
-                                    scale = lastScale * value
-                                    lastScale = scale
-                                }
-                        )
-                    )
-                    .frame(width: geo.size.width, height: geo.size.height)
-                    .clipped()
-                
-                // Crop overlay
-                Rectangle()
-                    .fill(Color.black.opacity(0.5))
-                    .mask(
-                        CropMask(aspectRatio: aspectRatio, size: geo.size)
-                            .fill(style: FillStyle(eoFill: true))
-                    )
-                    .allowsHitTesting(false)
-                
-                // Visible crop border
-                CropMask(aspectRatio: aspectRatio, size: geo.size)
-                    .stroke(Color.white, lineWidth: 2)
+@available(iOS 16.0.0, *)
+struct MainCropView: View {
+    @State private var showPicker = false
+    @State private var croppedImage: UIImage?
+
+    var body: some View {
+        NavigationStack {
+            VStack {
+                if let croppedImage {
+                    Image(uiImage: croppedImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 300, height: 400)
+                } else {
+                    Text("No Image is Selected")
+                }
             }
+            .navigationTitle("Crop")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showPicker.toggle()
+                    } label : {
+                        Image(systemName: "photo.on.rectangle.angled")
+                            .font(.callout)
+                    }
+                }
+            }
+            .cropImagePicker(options: [.circle, .square, .rectangle, .custom(.init(width: 200, height: 200))], show: $showPicker, croppedImage: $croppedImage)
         }
-        .clipped()
     }
 }
 
-struct CropMask: Shape {
-    let aspectRatio: CGFloat?
-    let size: CGSize
+@available(iOS 16.0.0, *)
+#Preview {
+    MainCropView()
+}
+
+@available(iOS 16.0.0, *)
+public enum Crop: Equatable {
+    case circle
+    case rectangle
+    case square
+    case custom(CGSize)
     
-    func path(in rect: CGRect) -> Path {
-        var path = Path(CGRect(origin: .zero, size: rect.size))
-        
-        let cropRect: CGRect
-        if let ratio = aspectRatio {
-            // Fixed aspect ratio
-            let cropWidth = min(rect.width, rect.height * ratio)
-            let cropHeight = cropWidth / ratio
-            cropRect = CGRect(
-                x: (rect.width - cropWidth) / 2,
-                y: (rect.height - cropHeight) / 2,
-                width: cropWidth,
-                height: cropHeight
-            )
-        } else {
-            // Square default if freeform
-            let side = min(rect.width, rect.height) * 0.8
-            cropRect = CGRect(
-                x: (rect.width - side) / 2,
-                y: (rect.height - side) / 2,
-                width: side,
-                height: side
-            )
+    public func name() -> String {
+        switch self {
+        case .circle: return "Circle"
+        case .rectangle: return "Rectangle"
+        case .square: return "Square"
+        case .custom(let cGSize):
+            return "Custom \(Int(cGSize.width))x\(Int(cGSize.height))"
         }
-        
-        path.addRect(cropRect)
-        return path
+    }
+    
+    public func size() -> CGSize {
+        switch self {
+        case .circle: return .init(width: 300, height: 300)
+        case .rectangle: return .init(width: 300, height: 500)
+        case .square: return .init(width: 300, height: 300)
+        case .custom(let cGSize): return cGSize
+        }
     }
 }
-
-

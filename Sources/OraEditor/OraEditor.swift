@@ -5,6 +5,7 @@ import PhotosUI
 import AVKit
 import Combine
 
+
 class OraManager: ObservableObject {
     @Published var isLoading: Bool = false
     @Published var step: OraEditorSteps = .selectPhoto
@@ -13,6 +14,7 @@ class OraManager: ObservableObject {
     @Published var getColor: Bool = false
     @Published var showToolSheet: Bool = false
     @Published var selectedImage: UIImage?
+    @Published var croppedImage: UIImage?
     @Published var selectedDetent: PresentationDetent = .height(EditorSheetState.toolMode.rawValue)
     
     // Crop-related properties
@@ -222,6 +224,12 @@ struct ImageEditorView: View {
     @State private var imageSize = CGSize.zero
     @State private var imageOffset = CGPoint.zero
     
+    @State private var photosItem: PhotosPickerItem?
+    @State private var selectedImage: UIImage?
+    @State private var showDialog = false
+    @State private var selectedCropType: Crop = .rectangle
+    @State private var showCropView = false
+    
     let compactSize = EditorSheetState.collapsed.rawValue
     let toolSize = EditorSheetState.toolMode.rawValue
     let expandedSize = EditorSheetState.expanded.rawValue
@@ -234,62 +242,12 @@ struct ImageEditorView: View {
                     let imageHeight = geo.size.height - 100
                     VStack {
                         if let image = manager.selectedImage {
-                            OraCropView(image: image, aspectRatio: 0.46)
-//                            VStack {
-//                                Spacer()
-//                                ZStack {
-//                                    // Image with transformations
-//                                    Image(uiImage: image)
-//                                        .resizable()
-//                                        .scaledToFill()
-//                                        .frame(width: imageHeight * 0.46, height: imageHeight)
-//                                        .clipped()
-//                                        .scaleEffect(manager.imageScale)
-//                                        .offset(manager.imageOffset)
-//                                        .shadow(radius: 10)
-//                                        .onAppear {
-//                                            calculateImageSize(in: geo.size, for: image)
-//                                            calculateCropRect(in: geo.size, imageHeight: imageHeight)
-//                                            // Initialize last values
-//                                            manager.lastImageScale = manager.imageScale
-//                                            manager.lastImageOffset = manager.imageOffset
-//                                            manager.lastCropRect = manager.cropRect
-//                                            showControls = true
-//                                        }
-//                                        .border(showBounds ? .red : .clear)
-////                                        .gesture(
-////                                            // Only allow image manipulation when not actively interacting with crop overlay
-////                                            SimultaneousGesture(
-////                                                MagnificationGesture()
-////                                                    .onChanged { value in
-////                                                        manager.imageScale = max(0.5, min(3.0, manager.lastImageScale * value))
-////                                                    }
-////                                                    .onEnded { _ in
-////                                                        manager.lastImageScale = manager.imageScale
-////                                                    },
-////                                                DragGesture()
-////                                                    .onChanged { value in
-////                                                        manager.imageOffset = CGSize(
-////                                                            width: manager.lastImageOffset.width + value.translation.width,
-////                                                            height: manager.lastImageOffset.height + value.translation.height
-////                                                        )
-////                                                    }
-////                                                    .onEnded { _ in
-////                                                        manager.lastImageOffset = manager.imageOffset
-////                                                    }
-////                                            )
-////                                        )
-//                                    
-////                                    // Interactive crop overlay
-////                                    if manager.isCropping {
-////                                        InteractiveCropOverlay(manager: manager, containerSize: geo.size)
-////                                    }
-//                                }
-////                                .clipped()
-//                                
-//                                Spacer()
-//                            }
-//                            .containerRelativeFrame(.horizontal)
+                            CropView(crop: .rectangle, image: manager.selectedImage) { croppedImage, status in
+                                if let croppedImage {
+                                    manager.croppedImage = croppedImage
+                                }
+                            }
+
                         }
                     }
                 }
