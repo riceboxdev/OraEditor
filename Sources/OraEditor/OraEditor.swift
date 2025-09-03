@@ -8,12 +8,12 @@ import Combine
 
 class OraManager: ObservableObject {
     @Published var isLoading: Bool = false
-    @Published var step: OraEditorSteps = .selectPhoto
+    @Published var step: OraEditorSteps = .editPhoto
     @Published var sheetState: EditorSheetState = .collapsed
     @Published var isCropping: Bool = false
     @Published var getColor: Bool = false
     @Published var showToolSheet: Bool = false
-    @Published var selectedImage: UIImage?
+    @Published var selectedImage: UIImage? = UIImage(named: "sample")
     @Published var croppedImage: UIImage?
     @Published var selectedDetent: PresentationDetent = .height(EditorSheetState.toolMode.rawValue)
     
@@ -33,48 +33,51 @@ class OraManager: ObservableObject {
         return abs(imageAspectRatio - targetAspectRatio) > tolerance
     }
     
-    func cropImage() {
-        guard let image = selectedImage else { return }
-        
-        // Calculate the actual crop area based on the current scale and offset
-        let croppedImage = performCrop(image: image)
-        selectedImage = croppedImage
-        
-        // Reset crop mode and transformations
-        resetCropMode()
+  
+  
+    
+    // MARK: - Image Downloading
+    
+    enum ImageDownloadError: Error {
+        case badStatusCode(Int)
+        case invalidImageData
     }
     
-    private func resetCropMode() {
-        isCropping = false
-        imageScale = 1.0
-        imageOffset = .zero
-        cropRect = .zero
-        lastImageScale = 1.0
-        lastImageOffset = .zero
-        lastCropRect = .zero
-        selectedDetent = .height(EditorSheetState.toolMode.rawValue)
-    }
-    
-    private func performCrop(image: UIImage) -> UIImage {
-        // This is a simplified crop implementation
-        // In a real app, you'd calculate the exact crop area based on the overlay position
-        let targetSize = CGSize(
-            width: image.size.height * targetAspectRatio,
-            height: image.size.height
-        )
+    // Downloads an image from a URL and returns a UIImage. Throws on failure.
+    static func downloadImage(from url: URL) async throws -> UIImage {
+        let (data, response) = try await URLSession.shared.data(from: url)
         
-        let cropRect = CGRect(
-            x: (image.size.width - targetSize.width) / 2,
-            y: 0,
-            width: targetSize.width,
-            height: targetSize.height
-        )
-        
-        guard let cgImage = image.cgImage?.cropping(to: cropRect) else {
-            return image
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw ImageDownloadError.badStatusCode(http.statusCode)
         }
         
-        return UIImage(cgImage: cgImage, scale: image.scale, orientation: image.imageOrientation)
+        guard let image = UIImage(data: data) else {
+            throw ImageDownloadError.invalidImageData
+        }
+        
+        return image
+    }
+    
+    // Convenience: downloads and sets the image on the manager, updating UI state.
+    @MainActor
+    func downloadAndSetImage(from url: URL) async {
+        isLoading = true
+        defer { isLoading = false }
+        
+        do {
+            let image = try await OraManager.downloadImage(from: url)
+            selectedImage = image
+            
+            // Auto-crop decision
+            if shouldAutoCrop(image: image) {
+                isCropping = true
+            }
+            
+            step = .editPhoto
+        } catch {
+            // Handle or surface the error as needed
+            print("Failed to download image:", error)
+        }
     }
 }
 
@@ -107,6 +110,13 @@ public struct OraEditor: View {
         }
         .transition(.opacity)
         .animation(.smooth(duration: 0.1), value: manager.isLoading)
+        .onAppear() {
+            Task {
+                if let url = URL(string: "https://picsum.photos/500/1100") {
+                    await manager.downloadAndSetImage(from: url)
+                }
+            }
+        }
     }
 }
 
@@ -230,6 +240,9 @@ struct ImageEditorView: View {
     @State private var selectedCropType: Crop = .rectangle
     @State private var showCropView = false
     
+    // Namespace for matched geometry between preview and crop view
+    @Namespace private var cropNamespace
+    
     let compactSize = EditorSheetState.collapsed.rawValue
     let toolSize = EditorSheetState.toolMode.rawValue
     let expandedSize = EditorSheetState.expanded.rawValue
@@ -242,25 +255,52 @@ struct ImageEditorView: View {
                     let imageHeight = geo.size.height - 100
                     VStack {
                         if let image = manager.selectedImage {
-                            CropView(crop: .rectangle, image: manager.selectedImage) { croppedImage, status in
-                                if let croppedImage {
-                                    manager.croppedImage = croppedImage
-                                }
-                            }
-
+                           Image(uiImage: image)
+                                .resizable()
+                                .aspectRatio(manager.targetAspectRatio, contentMode: .fit)
+                                .frame(height: imageHeight)
+                                .clipped()
+                                // Matched geometry source
+                                .matchedGeometryEffect(id: "editorImage", in: cropNamespace)
                         }
                     }
+                    .containerRelativeFrame(.horizontal)
                 }
                 .border(showBounds ? .green : .clear)
+                
+                if manager.isCropping {
+                    CropView(
+                        crop: .rectangle,
+                        image: manager.selectedImage,
+                        // Matched geometry destination
+                        namespace: cropNamespace,
+                        matchedId: "editorImage"
+                    ) { croppedImage, status in
+                        if let croppedImage {
+                            manager.croppedImage = croppedImage
+                        }
+                        if status {
+                            manager.isCropping = false
+                        }
+                    }
+                    .onAppear() {
+                        showControls = false
+                    }
+                    .onDisappear() {
+                        showControls = true
+                    }
+                }
             }
             
-            Rectangle()
-                .fill(.clear)
-                .frame(height: spacerHeight)
-                .padding(.vertical)
-                .border(showBounds ? .blue : .clear)
+            if showControls {
+                Rectangle()
+                    .fill(.clear)
+                    .frame(height: spacerHeight)
+                    .padding(.vertical)
+                    .border(showBounds ? .blue : .clear)
+            }
         }
-        .background(Color(UIColor.secondarySystemBackground))
+//        .background(Color(UIColor.secondarySystemBackground))
         .onChange(of: manager.selectedDetent) { newValue in
             if newValue == .height(compactSize) {
                 withAnimation(.smooth) {
@@ -532,7 +572,7 @@ struct EditorSheetView: View {
                 if manager.isCropping {
                     // Crop action button
                     CircleButton(icon: "checkmark", prominent: true, isActive: .constant(false)) {
-                        manager.cropImage()
+//                        manager.cropImage()
                     }
                 } else {
                     CircleButton(icon: "arrow.up", prominent: true, isActive: .constant(false)) {
@@ -674,7 +714,15 @@ struct CircleButton: View {
 }
 
 #Preview {
-    OraEditor()
+    ZStack {
+        if let image = UIImage(named: "sample") {
+            Image(uiImage: image)
+        }
+        LinearGradient(colors: [.red.opacity(0.2), .blue], startPoint: .top, endPoint: .bottom)
+            .ignoresSafeArea()
+            .opacity(0.3)
+        OraEditor()
+    }
 }
 
 #Preview {
@@ -719,3 +767,4 @@ struct ToolbarPreview: View {
         }
     }
 }
+

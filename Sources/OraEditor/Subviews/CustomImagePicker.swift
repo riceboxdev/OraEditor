@@ -90,6 +90,7 @@ public struct CropView: View {
     public var image: UIImage?
     public var onCrop: (UIImage?, Bool) -> ()
     
+    
     @Environment(\.dismiss) private var dismiss
     
     @State private var scale: CGFloat = 1
@@ -104,10 +105,7 @@ public struct CropView: View {
                 .navigationTitle("Crop")
                 .navigationBarTitleDisplayMode(.inline)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background {
-                    Color.black
-                        .ignoresSafeArea()
-                }.toolbar {
+              .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button {
                          let renderer = ImageRenderer(content: ImageView(true))
