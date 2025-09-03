@@ -240,7 +240,7 @@ enum EditorSheetState: CGFloat {
     case expanded  = 350
 }
 
-struct ImageEditorView: View {
+public struct ImageEditorView: View {
     @EnvironmentObject var manager: OraManager
     @State private var showControls = false
     @State private var imagePreviewHeight: CGFloat = 400
@@ -261,7 +261,7 @@ struct ImageEditorView: View {
     let expandedSize = EditorSheetState.expanded.rawValue
     let showBounds = false
    
-    var body: some View {
+    public var body: some View {
         VStack {
             ZStack {
                 
