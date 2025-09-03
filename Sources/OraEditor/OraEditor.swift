@@ -335,6 +335,7 @@ public struct ImageEditorView: View {
         }
         .sheet(isPresented: $showControls) {
           EditorSheetView()
+                .environmentObject(manager)
             .presentationDetents(
                 [
                     .height(EditorSheetState.collapsed.rawValue),
