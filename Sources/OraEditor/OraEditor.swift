@@ -316,7 +316,18 @@ public struct ImageEditorView: View {
                     .border(showBounds ? .blue : .clear)
             }
         }
-        
+        .background {
+            LinearGradient(
+                colors: [
+                    .clear,
+                    Color(manager.backgroundColor)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+                .ignoresSafeArea()
+                .opacity(0.4)
+        }
 //        .background(Color(UIColor.secondarySystemBackground))
         .onChange(of: manager.selectedDetent) { newValue in
             if newValue == .height(compactSize) {
