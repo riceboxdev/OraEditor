@@ -260,6 +260,8 @@ public struct ImageEditorView: View {
     let toolSize = EditorSheetState.toolMode.rawValue
     let expandedSize = EditorSheetState.expanded.rawValue
     let showBounds = false
+    
+    public init() { }
    
     public var body: some View {
         VStack {
